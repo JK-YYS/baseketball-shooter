@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <title>投籃遊戲 - 出手後顯示球版</title>
+    <style>
+        body { display: flex; flex-direction: column; align-items: center; background: #1a1a2e; font-family: 'Microsoft JhengHei', sans-serif; margin: 0; padding: 20px; color: white; overflow: hidden; }
+        #top-panel { width: 800px; background: rgba(255,255,255,0.1); padding: 15px; border-radius: 12px; text-align: center; margin-bottom: 10px; }
+        #game-layout { position: relative; display: flex; align-items: flex-end; gap: 30px; }
+        canvas { background: #0f3460; border: 4px solid #4ecca3; border-radius: 8px; box-shadow: 0 0 20px rgba(78, 204, 163, 0.2); }
+        .bar-container { position: relative; background: #16213e; border: 2px solid #4ecca3; border-radius: 10px; overflow: hidden; }
+        .h-progress-bg { width: 300px; height: 25px; margin: 5px auto; }
+        .v-control-group { display: flex; flex-direction: row; align-items: center; gap: 15px; height: 450px; }
+        .v-label { writing-mode: vertical-rl; text-orientation: mixed; font-size: 16px; color: #4ecca3; font-weight: bold; letter-spacing: 4px; }
+        .v-bar-inner-wrap { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+        .v-bar-container { width: 45px; height: 400px; display: flex; flex-direction: column-reverse; }
+        .progress-fill { width: 100%; height: 0%; background: #4ecca3; }
+        .target-zone { position: absolute; background: rgba(255, 255, 255, 0.3); border: 2px solid #fff; z-index: 1; box-sizing: border-box; }
+        #msg { position: absolute; top: 120px; width: 800px; text-align: center; font-size: 80px; font-weight: bold; pointer-events: none; z-index: 100; }
+        .hit-animation { color: #ffeb3b; text-shadow: 0 0 15px #ffffff, 0 0 30px #f39c12; animation: pop 0.4s cubic-bezier(0.17, 0.89, 0.32, 1.49); }
+        #status-board { font-size: 18px; color: #ffeb3b; margin-top: 10px; }
+    </style>
+</head>
+<body>
+
+<div id="top-panel">
+    <div>角度瞄準 (目標: 45-55)</div>
+    <div class="bar-container h-progress-bg">
+        <div class="target-zone" style="left: 45%; width: 10%; height: 100%;"></div>
+        <div id="h-bar" class="progress-fill" style="height: 100%;"></div>
+    </div>
+    <span id="h-val">0</span>
+</div>
+
+<div id="game-layout">
+    <div id="msg"></div>
+    <canvas id="gameCanvas" width="800" height="500"></canvas>
+    
+    <div class="v-control-group">
+        <div class="v-bar-inner-wrap">
+            <div class="bar-container v-bar-container">
+                <div class="target-zone" style="bottom: 45%; height: 10%; width: 100%;"></div>
+                <div id="v-bar" class="progress-fill"></div>
+            </div>
+            <div id="v-val" style="font-size: 24px; font-weight: bold;">0</div>
+        </div>
+        <div class="v-label">力量強度 (目標: 45-55)</div>
+    </div>
+</div>
+<div id="status-board">點擊畫面開始遊戲</div>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const msgDisp = document.getElementById('msg');
+const statusBoard = document.getElementById('status-board');
+
+const imgIdle = new Image();
+imgIdle.src = 'player.png'; 
+const imgShoot = new Image();
+imgShoot.src = 'player1.png'; 
+
+let state = 'IDLE'; 
+let hPower = 0, vPower = 0;
+let ball = { x: 0, y: 0, vx: 0, vy: 0, active: false };
+const hoop = { x: 650, y: 150 };
+
+const player = {
+    x: 150, 
+    baseY: 460,
+    currentY: 460,
+    width: 100,
+    height: 180,
+    targetY: 0    
+};
+
+function lerp(a, b, t) { return a + (b - a) * t; }
+
+window.addEventListener('mousedown', () => {
+    if (state === 'IDLE') {
+        state = 'AIMING_H';
+        resetGame();
+    } else if (state === 'AIMING_H') {
+        state = 'AIMING_V';
+        statusBoard.innerText = "按住力量...";
+    } else if (state === 'AIMING_V') {
+        launchBall();
+    }
+});
+
+function resetGame() {
+    hPower = 0; vPower = 0;
+    ball.active = false;
+    msgDisp.innerText = "";
+    player.targetY = 0;
+    statusBoard.innerText = "瞄準角度...";
+}
+
+function launchBall() {
+    const finalH = Math.floor(hPower);
+    const finalV = Math.floor(vPower);
+    const isScore = (finalH >= 45 && finalH <= 55) && (finalV >= 45 && finalV <= 55);
+    
+    // 1. 立即換成 player1.png 並執行跳躍
+    state = 'SHOOTING';
+    player.targetY = -35; 
+
+    // 2. 延遲球的出現，直到圖片切換完成且手部到達最高點
+    setTimeout(() => {
+        ball.active = true;
+        ball.x = player.x + 35; 
+        ball.y = player.currentY - 170; // 調整為 player1.png 手指尖的位置
+
+        if (isScore) {
+            const time = 45; 
+            ball.vx = (hoop.x - ball.x) / time;
+            ball.vy = (hoop.y - ball.y - 0.5 * 0.35 * Math.pow(time, 2)) / time;
+            statusBoard.innerText = "完美出手！";
+        } else {
+            ball.vx = 4 + (finalH / 10);
+            ball.vy = -12 - (finalV / 5);
+            statusBoard.innerText = "沒投進！";
+        }
+    }, 150); // 這 150ms 的延遲讓玩家看到 player1 出現後球才飛出
+
+    setTimeout(() => { 
+        player.targetY = 0; 
+        state = 'IDLE'; 
+    }, 800);
+}
+
+function drawPlayer() {
+    const s = 0.15; 
+    player.currentY = lerp(player.currentY, player.baseY + player.targetY, s);
+
+    ctx.save();
+    ctx.translate(player.x, player.currentY);
+
+    // 陰影
+    let lift = player.baseY - player.currentY;
+    ctx.fillStyle = `rgba(0,0,0,0.3)`;
+    ctx.beginPath();
+    ctx.ellipse(0, 5, 30, 6, 0, 0, Math.PI*2);
+    ctx.fill();
+
+    let activeImg = (state === 'SHOOTING') ? imgShoot : imgIdle;
+    let dW = player.width;
+    let dH = player.height;
+
+    if (state === 'AIMING_V') {
+        dH -= 8; dW += 3; // 蓄力壓扁
+    }
+
+    if (activeImg.complete) {
+        ctx.drawImage(activeImg, -dW / 2, -dH + 10, dW, dH);
+    }
+
+    // *** 關鍵修改：移除 drawPlayer 內部的球體繪製 ***
+    // 蓄力時不再顯示「手上的球」，讓視覺集中在人物動作和能量條
+    
+    ctx.restore();
+}
+
+function drawBasketball(ctx, x, y) {
+    let grad = ctx.createRadialGradient(x-3, y-3, 2, x, y, 12);
+    grad.addColorStop(0, "#ffae42");
+    grad.addColorStop(1, "#d35400");
+    ctx.fillStyle = grad;
+    ctx.beginPath(); ctx.arc(x, y, 12, 0, Math.PI*2); ctx.fill();
+}
+
+function render() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    
+    if (state === 'AIMING_H') {
+        hPower = (hPower + 2) % 100;
+        document.getElementById('h-bar').style.width = hPower + '%';
+        document.getElementById('h-val').innerText = Math.floor(hPower);
+    } else if (state === 'AIMING_V') {
+        vPower = (vPower + 2.5) % 100;
+        document.getElementById('v-bar').style.height = vPower + '%';
+        document.getElementById('v-val').innerText = Math.floor(vPower);
+    }
+
+    // 繪製籃框
+    ctx.strokeStyle = "white"; ctx.lineWidth = 4;
+    ctx.strokeRect(700, 30, 10, 130); 
+    ctx.strokeStyle = "#e74c3c";
+    ctx.beginPath(); ctx.ellipse(hoop.x, hoop.y, 35, 10, 0, 0, Math.PI * 2); ctx.stroke();
+
+    // 只有在 ball.active 為 true 時才畫軌跡 (即出手後)
+    if (ball.active) {
+        ball.x += ball.vx; ball.y += ball.vy; ball.vy += 0.35;
+
+        // 同時保留之前的「離開圖片範圍才顯示」的遮擋邏輯，確保更細膩
+        const imgLeft = player.x - player.width / 2;
+        const imgRight = player.x + player.width / 2;
+        const imgTop = player.currentY - player.height;
+        const imgBottom = player.currentY;
+
+        if (ball.x < imgLeft || ball.x > imgRight || ball.y < imgTop || ball.y > imgBottom) {
+            drawBasketball(ctx, ball.x, ball.y);
+        }
+        
+        if (ball.y > 600 || ball.x > 850) ball.active = false;
+        
+        if (ball.vy > 0 && Math.abs(ball.x - hoop.x) < 25 && Math.abs(ball.y - hoop.y) < 15 && msgDisp.innerText === "") {
+            msgDisp.innerText = "GOAL!!";
+            msgDisp.className = "hit-animation";
+            setTimeout(()=> { msgDisp.innerText = ""; }, 1000);
+        }
+    }
+
+    drawPlayer();
+    requestAnimationFrame(render);
+}
+
+render();
+</script>
+</body>
+</html>
